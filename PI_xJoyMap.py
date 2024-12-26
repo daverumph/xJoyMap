@@ -26,15 +26,22 @@ You should have received a copy of the GNU General Public License
 along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 """
-from XPLMDefs import *
-from XPLMUtilities import *
-from XPLMProcessing import *
-from XPLMDataAccess import *
-from XPLMPlanes import *
-from XPLMPlugin import *
-from XPLMMenus import *
-import ConfigParser
+from XPLMDefs import XPLM_PLUGIN_XPLANE
+from XPLMUtilities import (XPLMCreateCommand, XPLMFindCommand, XPLMCommandBegin, XPLMCommandEnd,
+                           XPLMRegisterCommandHandler, XPLMUnregisterCommandHandler, XPLMGetSystemPath,
+                           XPLMGetVersions, xplm_Host_XPlane)
+from XPLMProcessing import XPLMRegisterFlightLoopCallback, XPLMUnregisterFlightLoopCallback, XPLMSetFlightLoopCallbackInterval
+from XPLMDataAccess import (XPLMFindDataRef,
+                            XPLMGetDatai, XPLMSetDatai, XPLMGetDatad, XPLMSetDatad, XPLMGetDataf, XPLMSetDataf,
+                            XPLMGetDatavi, XPLMSetDatavi, XPLMGetDatavf, XPLMSetDatavf, XPLMGetDatab, XPLMSetDatab,
+                            )
+from XPLMPlanes import XPLMGetNthAircraftModel
+from XPLMPlugin import XPLMFindPluginBySignature, XPLM_MSG_PLANE_LOADED, XPLMCountPlugins, XPLMGetNthPlugin, XPLMGetPluginInfo
+from XPLMMenus import XPLMCreateMenu, XPLMDestroyMenu, XPLMAppendMenuItem, XPLMFindPluginsMenu
+from XPPython import XPPythonLog
+import configparser
 from os import path
+import pickle
 import math
 """
 Enables debug messages to help finding problems with config files
@@ -45,12 +52,12 @@ levels:
     3    Create commands / Get Datarefs
 
 """
-DEBUG=0
+DEBUG=3
 
 """
 Some constants
 """
-CMD_PREFIX = 'xjoymap/'    #prefix for new commands
+CMD_PREFIX = 'sling2/'    #prefix for new commands
 CONF_FILENAME = 'xjoymap.ini'
 ACF_CONF_FILENAME = '.xjm'
 X737_CHECK_FILE = '_x737pluginVersion.txt'
@@ -101,9 +108,9 @@ class xjm:
     @classmethod
     def debug(self, message, level = 1):
         """
-        prints a debug message
+        XPPythonLogs a debug message
         """
-        if (DEBUG >= level): print message
+        if (DEBUG >= level): XPPythonLog (message)
         pass
     @classmethod
     def saveAssigments(self, file):
@@ -113,8 +120,8 @@ class xjm:
         f = open(file, 'w')
         joyaxis = EasyDref('sim/joystick/joystick_axis_assignments[0:JOY_AXIS]')
         joybuttons = EasyDref('sim/joystick/joystick_button_assignments[0:JOY_BUTTONS]')
-        assigments = {axis: joyaxis.value, buttons: joybuttons.value}
-        cpickle.dump(assigments, f)
+        assigments = {'axis': joyaxis.value, 'buttons': joybuttons.value}
+        pickle.dump(assigments, f)
         f.close()
     @classmethod
     def loadAssigments(self, file):
@@ -124,7 +131,7 @@ class xjm:
         f = open(file, 'r')
         joyaxis = EasyDref('sim/joystick/joystick_axis_assignments[0:JOY_AXIS]')
         joybuttons = EasyDref('sim/joystick/joystick_button_assignments[0:JOY_BUTTONS]')
-        assigments = cpickle.load(f)
+        assigments = pickle.load(f)
         joyaxis.value = assigments.axis
         joybuttons.value = assigments.buttons
         f.close()
@@ -173,12 +180,12 @@ class EasyDref:
             self.dr_set = XPLMSetDatad
             self.cast = float
         else:
-            print "ERROR: invalid DataRef type", type
+            XPPythonLog (f"ERROR: invalid DataRef type {type}")
         
         if dref: dataref = dref    
         self.DataRef = XPLMFindDataRef(dataref)
         if self.DataRef == False:
-            print "Can't find " + dataref + " DataRef"
+            XPPythonLog (f"Can't find {dataref} DataRef")
     
     def initArrayDref(self, first, last, type):
         self.index = int(first)
@@ -198,7 +205,7 @@ class EasyDref:
             self.rset = XPLMSetDatab
             self.cast = float
         else:
-            print "ERROR: invalid DataRef type", type
+            XPPythonLog (f"ERROR: invalid DataRef type {type}")
         pass
 
     def set(self, value):
@@ -269,7 +276,7 @@ class JoyAxisAssign:
         #Let's get max amd min values for mapping
         self.axis_min = EasyDref("sim/joystick/joystick_axis_minimum[" + str(axis) + "]", "float").value
         self.axis_max = EasyDref("sim/joystick/joystick_axis_maximum[" + str(axis) + "]", "float").value
-        print "New Axis ", self.axis, " ranging ", drl, " to ", drh, "steps", steps
+        XPPythonLog (f"New Axis {self.axis} ranging {drl} to {drh} steps {steps}")
 
     def get_current_joy(self, axis_value):
         #To avoid division by 0 from nonexistant axis, we check and do the mapping
@@ -303,7 +310,7 @@ class JoyAxisAssign:
             if not (current_dr_value + self.dr_round >= self.old_dr_value >= current_dr_value - self.dr_round):
                 # Something changed the values update if in release range
                 if (current_joy_value +  self.release > current_dr_value > current_joy_value - self.release):
-                    #print "Values in range"
+                    #XPPythonLog("Values in range")
                     self.dataref.value = current_joy_value
                 else: return 1
             else:
@@ -355,8 +362,8 @@ class JoyButtonAlias:
         self.newCMD = xjm.CreateCommand(newCommand, mainDescription)
         self.newCH = self.newCommandHandler
         
-        #print "register:", id(self.plugin), self.newCMD, id(self.newCH)
-        XPLMRegisterCommandHandler(self.plugin, self.newCMD, self.newCH, INBEFORE, 0)
+        XPPythonLog(f"register: {self.newCMD}, {id(self.newCH)}")
+        XPLMRegisterCommandHandler(self.newCMD, self.newCH, INBEFORE, 0)
     
     def newCommandHandler(self, inCommand, inPhase, inRefcon):
         if (inPhase == 0):
@@ -371,8 +378,8 @@ class JoyButtonAlias:
         else:
             return self.mainCMD
     def destroy(self):
-        #print "destroy", id(self.plugin), self.newCMD, id(self.newCH)
-        XPLMUnregisterCommandHandler(self.plugin, self.newCMD, self.newCH, INBEFORE, 0);
+        #XPPythonLog(f"destroy {self.newCMD}, {id(self.newCH)}")
+        XPLMUnregisterCommandHandler(self.newCMD, self.newCH, INBEFORE, 0);
         pass
 
 class JoyButtonDataref:
@@ -400,7 +407,7 @@ class JoyButtonDataref:
             self.mode = 'incremental'      
             if(self.repeat):
                 self.repeatCH = self.RepeatCallback
-                XPLMRegisterFlightLoopCallback(self.plugin, self.repeatCH, 0, 0)
+                XPLMRegisterFlightLoopCallback(self.repeatCH, 0, 0)
         else: 
             if loop:
                 self.action = self.toggle_loop
@@ -422,19 +429,19 @@ class JoyButtonDataref:
         if (self.mode == 'incremental' or (self.mode == 'toggle' and self.valuesl > 0)):
             self.command_down = xjm.CreateCommand(command + '_rev' , description)
             self.newCH_down = self.CommandHandler_down
-            XPLMRegisterCommandHandler(self.plugin, self.command_down, self.newCH_down, INBEFORE, 0)
+            XPLMRegisterCommandHandler(self.command_down, self.newCH_down, INBEFORE, 0)
         
-        #print "register", id(self.plugin), self.command, id(self.newCH)
-        XPLMRegisterCommandHandler(self.plugin, self.command, self.newCH, INBEFORE, 0)
+        XPPythonLog(f"register, {self.command}, {id(self.newCH)}")
+        XPLMRegisterCommandHandler(self.command, self.newCH, INBEFORE, 0)
 
     def CommandHandler(self, inCommand, inPhase, inRefcon):
         if (inPhase == 0):
             self.action(self.increment)
             if (self.repeat): 
                 self.rincrement = self.increment
-                XPLMSetFlightLoopCallbackInterval(self.plugin, self.repeatCH, 0.3, 1, 0)
+                XPLMSetFlightLoopCallbackInterval(self.repeatCH, 0.3, 1, 0)
         if (inPhase == 2 and self.repeat):
-            XPLMSetFlightLoopCallbackInterval(self.plugin, self.repeatCH, 0, 0, 0)
+            XPLMSetFlightLoopCallbackInterval(self.repeatCH, 0, 0, 0)
         return 1
     
     def CommandHandler_down(self, inCommand, inPhase, inRefcon):
@@ -442,9 +449,9 @@ class JoyButtonDataref:
             self.action(self.increment * -1)
             if (self.repeat): 
                 self.rincrement = self.increment * -1
-                XPLMSetFlightLoopCallbackInterval(self.plugin, self.repeatCH, 0.3, 1, 0)
+                XPLMSetFlightLoopCallbackInterval(self.repeatCH, 0.3, 1, 0)
         if (inPhase == 2 and self.repeat):
-            XPLMSetFlightLoopCallbackInterval(self.plugin, self.repeatCH, 0, 0, 0)
+            XPLMSetFlightLoopCallbackInterval(self.repeatCH, 0, 0, 0)
         return 1
     
     def incremental(self, increment):
@@ -470,12 +477,12 @@ class JoyButtonDataref:
         self.dataref.value = self.values[self.valuesi]
     
     def destroy(self):
-        #print "destroy", id(self.plugin), self.command, id(self.newCH)
-        XPLMUnregisterCommandHandler(self.plugin, self.command, self.newCH, INBEFORE, 0)
+        #XPPythonLog(f"destroy, {self.command}, {id(self.newCH)}")
+        XPLMUnregisterCommandHandler(self.command, self.newCH, INBEFORE, 0)
         if (self.mode == 'incremental' or (self.mode == 'toggle' and self.valuesl > 0)):
-            XPLMUnregisterCommandHandler(self.plugin, self.command_down, self.newCH_down, INBEFORE, 0)
+            XPLMUnregisterCommandHandler(self.command_down, self.newCH_down, INBEFORE, 0)
         if (self.repeat):
-            XPLMUnregisterFlightLoopCallback(self.plugin, self.repeatCH, 0)
+            XPLMUnregisterFlightLoopCallback(self.repeatCH, 0)
         pass
 
 class JoySwitch:
@@ -489,8 +496,8 @@ class JoySwitch:
         # register new command
         self.command = xjm.CreateCommand(self.command, description)
         self.newCH = self.CommandHandler
-        #print "register", id(self.plugin), self.command, id(self.newCH)
-        XPLMRegisterCommandHandler(self.plugin, self.command, self.newCH, INBEFORE, 0)
+        XPPythonLog(f"register, {self.command}, {id(self.newCH)}")
+        XPLMRegisterCommandHandler(self.command, self.newCH, INBEFORE, 0)
 
     def CommandHandler(self, inCommand, inPhase, inRefcon):
         if (inPhase == 0):  
@@ -500,7 +507,7 @@ class JoySwitch:
         return 1
 
     def destroy(self):
-        XPLMUnregisterCommandHandler(self.plugin, self.command, self.newCH, INBEFORE, 0)
+        XPLMUnregisterCommandHandler(self.command, self.newCH, INBEFORE, 0)
 
 class PythonInterface:
     """
@@ -518,19 +525,19 @@ class PythonInterface:
         
         self.shiftcommand = xjm.CreateCommand("shift", "Shift button")
         self.shiftCH = self.shiftHandler
-        XPLMRegisterCommandHandler(self, self.shiftcommand, self.shiftCH, INBEFORE, 0)
+        XPLMRegisterCommandHandler(self.shiftcommand, self.shiftCH, INBEFORE, 0)
         
         # Datarefs
         self.axis_values_dr = XPLMFindDataRef("sim/joystick/joystick_axis_values")
 
         # Main floop
         self.floop = self.floopCallback
-        XPLMRegisterFlightLoopCallback(self, self.floop, 0, 0)
+        XPLMRegisterFlightLoopCallback(self.floop, 0, 0)
         
         # Main menu
         self.Cmenu = self.mmenuCallback
         self.mPluginItem = XPLMAppendMenuItem(XPLMFindPluginsMenu(), 'xJoyMap', 0, 1)
-        self.mMain = XPLMCreateMenu(self, 'xJoyMap', XPLMFindPluginsMenu(), self.mPluginItem, self.Cmenu, 0)
+        self.mMain = XPLMCreateMenu('xJoyMap', XPLMFindPluginsMenu(), self.mPluginItem, self.Cmenu, 0)
         self.mReload = XPLMAppendMenuItem(self.mMain, 'Reload config', False, 1)
         
         return self.Name, self.Sig, self.Desc
@@ -547,7 +554,7 @@ class PythonInterface:
                     'values': False, 'increment' : False, 'description': '', 'override': False, \
                     'repeat': False, 'loop': 'True', 'steps': 0}
         
-        config = ConfigParser.RawConfigParser()
+        config = configparser.RawConfigParser()
         alias_commands=[]
                 
         # Plane config
@@ -557,13 +564,13 @@ class PythonInterface:
         
         # Load only the main config on startup
         if (startup):
-            config.read(self.sys_path + 'Resources/plugins/PythonScripts/' + CONF_FILENAME)
+            config.read(self.sys_path + 'Resources/plugins/PythonPlugins/' + CONF_FILENAME)
         else:
             # Try to load the aircraft config or reset the main conf
             plane, plane_path = XPLMGetNthAircraftModel(0)
             if (not config.read(plane_path[:-4] + ACF_CONF_FILENAME)):
                 if (not config.read(plane_path[:-len(plane)] + CONF_FILENAME)):
-                    config.read(self.sys_path + 'Resources/plugins/PythonScripts/' + CONF_FILENAME)
+                    config.read(self.sys_path + 'Resources/plugins/PythonPlugins/' + CONF_FILENAME)
                      
         for section in config.sections():            
             conf = dict(defaults)
@@ -620,7 +627,7 @@ class PythonInterface:
             conf['shifted_command'], section, conf['override']))
             
         # Reenable flightloop if we have axis defined   
-        if (len(self.axis)): XPLMSetFlightLoopCallbackInterval(self, self.floop, -1, 0, 0)
+        if (len(self.axis)): XPLMSetFlightLoopCallbackInterval(self.floop, -1, 0, 0)
         xjm.debug("config end")
             
     def clearConfig(self):
@@ -629,7 +636,7 @@ class PythonInterface:
         """
         xjm.debug("clearConfig start")
         # Disable flightloop
-        XPLMSetFlightLoopCallbackInterval(self, self.floop, 0, 0, 0)
+        XPLMSetFlightLoopCallbackInterval(self.floop, 0, 0, 0)
         # Destroy commands
         for command in self.buttons: command.destroy()
         for command in self.buttonsdr: command.destroy()
@@ -660,12 +667,52 @@ class PythonInterface:
 
     def XPluginStop(self):
         self.clearConfig()
-        XPLMUnregisterFlightLoopCallback(self, self.floop, 0)
-        XPLMUnregisterCommandHandler(self, self.shiftcommand, self.shiftCH, INBEFORE, 0)
-        XPLMDestroyMenu(self, self.mMain)
+        XPLMUnregisterFlightLoopCallback(self.floop, 0)
+        XPLMUnregisterCommandHandler(self.shiftcommand, self.shiftCH, INBEFORE, 0)
+        XPLMDestroyMenu(self.mMain)
     
     def XPluginEnable(self):
         self.config(True)
+        nPlugins = XPLMCountPlugins()
+        for i in range(nPlugins):
+            pluginInfo = XPLMGetPluginInfo(XPLMGetNthPlugin(i))
+            XPPythonLog(f"Plugin name: {pluginInfo.name}, path: {pluginInfo.filePath}, signature: {pluginInfo.signature}, description: {pluginInfo.description}")
+        # Try to find the sling2 data refs
+        refList = [
+            "sling2/switch/ignition1",
+            "sling2/switch/ignition2", 
+            "sling2/switch/ignitionkey", 
+            "sling2/switch/avionicson",
+            "sling2/switch/autopilot",
+            "sling2/switch/fuelpumpmain",
+            "sling2/switch/fuelpumpaux",
+            "sling2/switch/ecubackup",
+            "sling2/switch/efisbackup",
+            "sling2/switch/pitotheat",
+            "sling2/switch/aux",
+            "sling2/switch/navlights",
+            "sling2/switch/strobelights",
+            "sling2/switch/taxilights",
+            "sling2/switch/landinglight",
+            "sling2/switch/fuelselector",
+            "sling2/switch/flaps",
+            "sling2/switch/parkbrake",
+        ]
+        XPPythonLog("Trying sling2 data refs")
+        for dataRefName in refList:
+            dataRef = XPLMFindDataRef(dataRefName)
+            if dataRef:
+                XPPythonLog(f"Good dataRef for {dataRefName}: {dataRef}")
+        if XPLMGetVersions(xplm_Host_XPlane)[1] >= 400:
+            import XPLMDataAccess
+            # from XPLMDataAccess import XPLMCountDataRefs, XPLMGetDataRefsByIndex, XPLMGetDataRefInfo
+            numDataRefs = XPLMDataAccess.XPLMCountDataRefs()
+            XPPythonLog(f"numDataRefs: {numDataRefs}")
+            dataRefs = XPLMDataAccess.XPLMGetDataRefsByIndex(0, numDataRefs)
+            for dataRef in dataRefs:
+                info = XPLMDataAccess.XPLMGetDataRefInfo(dataRef)
+                # if "sling2" in info.name:
+                XPPythonLog(f"Found data ref with name {info.name}")
         return 1
     
     def XPluginDisable(self):
