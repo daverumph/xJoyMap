@@ -52,7 +52,7 @@ levels:
     3    Create commands / Get Datarefs
 
 """
-DEBUG=3
+DEBUG=0
 
 """
 Some constants
@@ -568,9 +568,13 @@ class PythonInterface:
         else:
             # Try to load the aircraft config or reset the main conf
             plane, plane_path = XPLMGetNthAircraftModel(0)
-            if (not config.read(plane_path[:-4] + ACF_CONF_FILENAME)):
+            pathToTry = plane_path[:-4] + ACF_CONF_FILENAME
+            xjm.debug(f"Trying to read config from {pathToTry}")
+            if (not config.read(pathToTry)):
                 if (not config.read(plane_path[:-len(plane)] + CONF_FILENAME)):
-                    config.read(self.sys_path + 'Resources/plugins/PythonPlugins/' + CONF_FILENAME)
+                    pathToTry = self.sys_path + 'Resources/plugins/PythonPlugins/' + CONF_FILENAME
+                    xjm.debug(f"Not found, so rereading default config from {pathToTry}")
+                    config.read(pathToTry)
                      
         for section in config.sections():            
             conf = dict(defaults)
@@ -591,33 +595,45 @@ class PythonInterface:
             TODO: This code will be rewritten maybe each class should check their parameters..
             it's kind of ugly all that stuff here :)
             """
-            # Sandy Barbour - Need to pass in PythonInterface address so that callbacks etc will work from withing a class
+            # Sandy Barbour - Need to pass in PythonInterface address so that callbacks etc will work from within a class
 
             # JoyAxis Assignments (New way)
             if  (xjm.CheckParams(['axis', 'dataref', 'drl', 'drh'], conf)):
-                self.axis.append(JoyAxisAssign(self, int(conf['axis']), \
-                conf['dataref'], conf['drl'], conf['drh'], conf['type'], conf['release'], \
-                conf['round'], conf['steps']))
+                if not XPLMFindDataRef(conf['dataref']):
+                    xjm.debug(f"DataRef not found: {conf['dataref']}, skipping axis creation")
+                else:
+                    self.axis.append(JoyAxisAssign(self, int(conf['axis']), \
+                    conf['dataref'], conf['drl'], conf['drh'], conf['type'], conf['release'], \
+                    conf['round'], conf['steps']))
             # JoyAxis Assignments (Compatible (old) way)
             elif  (xjm.CheckParams(['axis', 'dataref', 'range'], conf)):
-                rng=float(conf['range'])
-                if (rng < 0):
-                  rng_min=rng
-                  rng_max=abs(rng)
+                if not XPLMFindDataRef(conf['dataref']):
+                    xjm.debug(f"DataRef not found: {conf['dataref']}, skipping axis creation")
                 else:
-                  rng_min=0
-                  rng_max=rng
+                    rng=float(conf['range'])
+                    if (rng < 0):
+                        rng_min=rng
+                        rng_max=abs(rng)
+                    else:
+                        rng_min=0
+                        rng_max=rng
 
-                self.axis.append(JoyAxisAssign(self, int(conf['axis']), \
-                conf['dataref'], rng_min, rng_max, conf['type'], conf['release'], \
-                conf['round'], conf['steps']))
+                    self.axis.append(JoyAxisAssign(self, int(conf['axis']), \
+                    conf['dataref'], rng_min, rng_max, conf['type'], conf['release'], \
+                    conf['round'], conf['steps']))
             # JoySwitch
             elif (xjm.CheckParams(['new_command', 'on_value', 'off_value', 'dataref'], conf)):
-                self.buttons.append(JoySwitch(self, conf['new_command'], conf['description'], conf['dataref'], conf['type'], conf['on_value'], conf['off_value']))
+                if not XPLMFindDataRef(conf['dataref']):
+                    xjm.debug(f"DataRef not found: {conf['dataref']}, skipping creation of {conf['new_command']} command")
+                else:
+                    self.buttons.append(JoySwitch(self, conf['new_command'], conf['description'], conf['dataref'], conf['type'], conf['on_value'], conf['off_value']))
             # JoyButtonDataref
             elif(xjm.CheckParams(['new_command', 'dataref'], conf)):
-                self.buttonsdr.append(JoyButtonDataref(self, conf['new_command'], conf['dataref'], conf['type'],\
-                conf['values'], conf['increment'], conf['repeat'], (not conf['loop'].lower() in ['no', 'false', 'disabled', '0', 'disable', 'off']) , section))
+                if not XPLMFindDataRef(conf['dataref']):
+                    xjm.debug(f"DataRef not found: {conf['dataref']}, skipping creation of {conf['new_command']} command")
+                else:
+                    self.buttonsdr.append(JoyButtonDataref(self, conf['new_command'], conf['dataref'], conf['type'],\
+                    conf['values'], conf['increment'], conf['repeat'], (not conf['loop'].lower() in ['no', 'false', 'disabled', '0', 'disable', 'off']) , section))
             # joyButtonAlias
             elif (xjm.CheckParams(['new_command', 'main_command'], conf)):
                 alias_commands.append(conf) # store alias
@@ -676,43 +692,7 @@ class PythonInterface:
         nPlugins = XPLMCountPlugins()
         for i in range(nPlugins):
             pluginInfo = XPLMGetPluginInfo(XPLMGetNthPlugin(i))
-            XPPythonLog(f"Plugin name: {pluginInfo.name}, path: {pluginInfo.filePath}, signature: {pluginInfo.signature}, description: {pluginInfo.description}")
-        # Try to find the sling2 data refs
-        refList = [
-            "sling2/switch/ignition1",
-            "sling2/switch/ignition2", 
-            "sling2/switch/ignitionkey", 
-            "sling2/switch/avionicson",
-            "sling2/switch/autopilot",
-            "sling2/switch/fuelpumpmain",
-            "sling2/switch/fuelpumpaux",
-            "sling2/switch/ecubackup",
-            "sling2/switch/efisbackup",
-            "sling2/switch/pitotheat",
-            "sling2/switch/aux",
-            "sling2/switch/navlights",
-            "sling2/switch/strobelights",
-            "sling2/switch/taxilights",
-            "sling2/switch/landinglight",
-            "sling2/switch/fuelselector",
-            "sling2/switch/flaps",
-            "sling2/switch/parkbrake",
-        ]
-        XPPythonLog("Trying sling2 data refs")
-        for dataRefName in refList:
-            dataRef = XPLMFindDataRef(dataRefName)
-            if dataRef:
-                XPPythonLog(f"Good dataRef for {dataRefName}: {dataRef}")
-        if XPLMGetVersions(xplm_Host_XPlane)[1] >= 400:
-            import XPLMDataAccess
-            # from XPLMDataAccess import XPLMCountDataRefs, XPLMGetDataRefsByIndex, XPLMGetDataRefInfo
-            numDataRefs = XPLMDataAccess.XPLMCountDataRefs()
-            XPPythonLog(f"numDataRefs: {numDataRefs}")
-            dataRefs = XPLMDataAccess.XPLMGetDataRefsByIndex(0, numDataRefs)
-            for dataRef in dataRefs:
-                info = XPLMDataAccess.XPLMGetDataRefInfo(dataRef)
-                # if "sling2" in info.name:
-                XPPythonLog(f"Found data ref with name {info.name}")
+            xjm.debug(f"Plugin name: {pluginInfo.name}, path: {pluginInfo.filePath}, signature: {pluginInfo.signature}, description: {pluginInfo.description}", 2)
         return 1
     
     def XPluginDisable(self):
@@ -722,10 +702,27 @@ class PythonInterface:
         """
         Detects aircraft changes and reloads the config
         """
+        messages = {
+            101: "Plane Crashed",
+            102: "Plane Loaded",
+            103: "Airport Loaded",
+            104: "Scenery Loaded",
+            105: "Airplane Count Changed",
+            106: "Plane Unloaded",
+            107: "Will Write Prefs",
+            108: "Livery Loaded",
+            109: "Entered VR",
+            110: "Exiting VR",
+            111: "Release Planes",
+            112: "FMOD Bank Loaded",
+            113: "FMOD Bank Unloaoding",
+            114: "DataRefs Added"
+        }
         if (inFromWho == XPLM_PLUGIN_XPLANE):
             # On plane load
-            if (inParam == XPLM_PLUGIN_XPLANE and inMessage == XPLM_MSG_PLANE_LOADED ): # On aircraft change
-                plane, plane_path = XPLMGetNthAircraftModel(0)
+            if (inFromWho == XPLM_PLUGIN_XPLANE and inMessage == XPLM_MSG_PLANE_LOADED ): # On aircraft change
+                plane, plane_path = XPLMGetNthAircraftModel(inParam)
+                xjm.debug(f"Plane Loaded: {plane} from path {plane_path}")
                 """
                 Detect x737 load, clear config and wait for x737 plugin
                 """
@@ -733,6 +730,7 @@ class PythonInterface:
                     self.clearConfig()
                     return
                 else:
+                    xjm.debug(f"Loading new plane: {plane}, path: {plane_path}")
                     self.clearConfig()
                     self.config()
                     pass
@@ -746,5 +744,5 @@ class PythonInterface:
                 xjm.debug("x737 plug-in unloaded, clearing config")
                 self.clearConfig()
         else:
-            xjm.debug("message from: " + str(inFromWho) + ' id: ' +  str(inMessage), 3)
+            xjm.debug(f"message from: {inFromWho}, {messages[inMessage]}", 3)
         pass

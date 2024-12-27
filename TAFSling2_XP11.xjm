@@ -1,0 +1,288 @@
+;
+; PI_xJoyMap.py Example main configuration file 
+;
+; xJoyMap  doesn't check config parameters so bad parameters will hang 
+; the plugin and maybe x-plane (sorry for that)
+;
+; GENERAL SYNTAX:
+;
+; [Section Name]
+; parameter1 = value
+; parameter2 = value
+;
+; The Section Name MUST BE UNIQUE for each assignment 
+; it will appear as the command description in the  
+; joystick & equipment -> Buttons: Adv tab
+;
+; xJoyMap will detect the mode of operation according to the parameters
+; defined in each section. In future releases maybe a mode parameter
+; will be required 
+;
+; MODE                        required parameters             			optional params
+; -----------------------------------------------------------------------------------------------
+; axis2dataref:               axis dataref range              			type, release, round, steps
+; button2dataref incremental  new_command dataref increment   			type
+; button2dataref toggle:      new_command dataref values      			type, loop
+; buttonAlias:                new_command main_command        			shifted_command, override
+; button2dataref switch       new_command dataref on_value off_value
+; constant                    *special see example*
+;
+
+; ==============================
+; Button Alias examples
+; ==============================
+
+;
+; Creates a new "virtual command" at sim/xjoymap/NAV_APP
+; that triggers sim/autopilot/NAV 
+; or sim/autopilot/approach if the shift button is pressed
+;
+; You must assign your new created command and a shift button
+; in the joystick & equipment -> Buttons: Adv tab
+; it will appear at the bottom under sim/xjoymap/
+
+; [Nav App shifted]
+; new_command=NAV_APP
+; main_command=sim/autopilot/NAV
+; shifted_command=sim/autopilot/approach
+
+; ;
+; ; Same as above with vertical_peed and altitude_hold
+; ;
+
+; [Alt Hold Vertical Speed shifted]
+; new_command=vpseed_althold
+; main_command=sim/autopilot/vertical_speed
+; shifted_command=sim/autopilot/altitude_hold
+
+; ;
+; ; Example combo command
+; ;
+; ; Creates the command LNAV_VNAV that triggers
+; ; LNAV and VNAV simultaneously 
+; ; 
+; ; note: You can also define multiple shifted commands 
+
+; [LNAV VNAV toggle combo]
+; new_command=LNAV_VNAV
+; main_command=sim/autopilot/NAV, sim/autopilot/vnav
+
+; ;
+; ; That's a simple alias to engage the AP Heading
+; ; It just calls the default X-plane Heading Command
+; ;
+
+; [Heading engage]
+; new_command=Heading_Engage
+; main_command=sim/autopilot/heading
+
+; ;
+; ; A combo main command with a simple shifted command
+; ;
+; [LNAV VNAV/Autopilot disengage]
+; new_command=LNAV_VNAV_sh_AP_diseng
+; main_command=sim/autopilot/NAV, sim/autopilot/vnav
+; shifted_command=sim/autopilot/servos_fdir_off
+
+; ; ============================
+; ; Button to dataref examples
+; ; ============================
+
+; ;
+; ;  toggle mode
+; ;
+; ; For assigments with more than one value, it will define an additional 
+; ; *_rev command with reverse direction
+; ; You can disable the automatic looping from the last value to the first one adding
+; ; loop = false
+
+; [Map range toggle]
+; new_command=map_range
+; dataref=sim/cockpit/switches/EFIS_map_range_selector
+; values = 0, 1, 2, 3, 4, 5, 6
+
+; [Map Mode toggle]
+; new_command=map_mode
+; dataref=sim/cockpit/switches/EFIS_map_submode
+; values = 0, 1, 2, 3, 4
+
+; [Afterburner 1 toggle]
+; new_command=afterburner_1
+; dataref=sim/cockpit2/engine/actuators/afterburner_enabled[0]
+; values = 0,1
+
+; [Afterburner 2 toggle]
+; new_command=afterburner_2
+; dataref=sim/cockpit2/engine/actuators/afterburner_enabled[1]
+; values = 0,1
+
+; [Afterburner both toggle]
+; new_command=afterburner_both
+; dataref=sim/cockpit2/engine/actuators/afterburner_enabled[0:1]
+; values = 0,1 
+
+; ;
+; ; incremental mode
+; ;
+; ; This will define an additional *_rev command with reversed increment
+; ; (increment * -1)
+
+; [Increment Heading]
+; new_command=heading
+; dataref=sim/cockpit/autopilot/heading_mag
+; description=Heading 
+; increment=1
+; type=float
+; repeat=True
+
+; ; CONSTATNS
+; ;
+; ; That's an special section should always be named "Constants"
+; ; 
+; ; Useful to set some dataref values on X-Plane Startup and on plane change.
+; ;
+; ; Despite the name of the section xJoyMap will set these values only on Startup 
+; ; and when a new aircraft is loaded it will not assure that the value remain constant
+; ; during your flight.
+; ;
+; ; You can name the parameters as you like to have a reference of what they do 
+; ; but names must be UNIQUE
+; ;
+; ; SYNTAX
+; ; name = dataref, value, type
+; ;
+; ; type is optional defaults to int.
+; ;       You can also specify the type embedded within the dataref name 
+; ;       ex: setme_on_startup=some/fancy/dataref(type)
+
+; ;[Constants]
+; ;fov=sim/graphics/view/field_of_view_deg, 70, int
+; ;watever=sim/graphics/some_fancy_array[1:2](float), 7
+
+; ;
+; ; SWITCH Mode
+; ;
+; ; Button to dataref: switch-mode
+; ; Useful for hardware switches
+; ;
+
+[Lane A toggle]
+new_command=LaneA
+dataref=sling2/switch/ignition1
+description=LANE A switch toggle
+values=0.0,1.0
+type=float
+
+[Lane B toggle]
+new_command=LaneB
+dataref=sling2/switch/ignition2
+description=LANE B switch toggle
+values=0.0,1.0
+type=float
+
+[Ignition key toggle]
+new_command=ignitionkey
+dataref=sling2/switch/ignitionkey
+description=Ignition key
+values=0.0,1.0,2.0
+type=float
+
+[Avionics Switch toggle]
+new_command=avionicsOn
+dataref=sling2/switch/avionicson
+description=Avionics tumbler
+values=0.0,1.0
+type=float
+
+[Autopilot Switch toggle]
+new_command=autopilotSwitch
+dataref=sling2/switch/autopilot
+description=Autopilot tumbler
+values=0.0,1.0
+type=float
+
+[Fuel Pump Main toggle]
+new_command=fuelPumpMain
+dataref=sling2/switch/fuelpumpmain
+description=Fuel Pump Main switch
+values=1.0,0.0
+type=float
+
+[Fuel Pump Aux toggle]
+new_command=fuelPumpAux
+dataref=sling2/switch/fuelpumpaux
+description=Fuel Pump Aux switch
+values=0.0,1.0
+type=float
+
+[ECU Backup toggle]
+new_command=ecubackup
+dataref=sling2/switch/ecubackup
+description=ECU Backup switch
+values=0.0,1.0
+type=float
+
+[EFIS Backup toggle]
+new_command=efisbackup
+dataref=sling2/switch/efisbackup
+description=EFIS Backup switch
+values=0.0,1.0
+type=float
+
+[Pitot Heat toggle]
+new_command=pitotheat
+dataref=sling2/switch/pitotheat
+description=Pitot heat tumbler
+values=0.0,1.0
+type=float
+
+[Aux toggle]
+new_command=aux
+dataref=sling2/switch/aux
+description=Aux tumbler (0 - off, 1 - on)
+values=0.0,1.0
+type=float
+
+[Nav Lights toggle]
+new_command=navlights
+dataref=sling2/switch/navlights
+description=Nav lights tumbler (0 - off, 1 - on)
+values=0.0,1.0
+type=float
+
+[Strobe Lights toggle]
+new_command=strobelights
+dataref=sling2/switch/strobelights
+description=Beacon lights tumbler (0 - off, 1 - on)
+values=0.0,1.0
+type=float
+
+[Taxi Lights toggle]
+new_command=taxilights
+dataref=sling2/switch/taxilights
+description=Taxi lights tumbler (0 - off, 1 - on)
+values=0.0,1.0
+type=float
+
+[Landing Lights toggle]
+new_command=landinglights
+dataref=sling2/switch/landinglights
+description=Landing lights tumbler (0 - off, 1 - on)
+values=0.0,1.0
+type=float
+
+[Fuel Selector]
+new_command=fuelselector
+dataref=sling2/switch/fuelselector
+description=Fuel tank selector (0 - Left, 1 - Right, 2 - Off)
+values=0.0,1.0,2.0
+type=float
+
+; sling2/switch/flaps - Flaps selector (0 - Flaps up, 1 - Flaps 10, 2 - Flaps 20, 3 - Flaps Down)
+
+[Parking Brake]
+new_command=slingParkBrake
+dataref=sling2/switch/parkbrake
+description=Parking brake selector
+values:1.0,0.0
+type = float
